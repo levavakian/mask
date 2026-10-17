@@ -71,8 +71,40 @@ the value already stored in that header, so **re-flashing a stock image needs no
 Firmware is **not encrypted** (XOR of the two official versions has long exact-zero runs), so it is
 modifiable in principle.
 
+## Can the firmware be read out over Bluetooth? No.
+
+Checked every interface — there is no way to pull the firmware off the device over BLE:
+
+- The app ships **two** OTA clients and both are strictly **write-only** (push firmware, no readback):
+  - Panchip (`fd00`): opcodes `version` / `size` / `crc` / `reset`.
+  - Quintic (`fee8`, `BleOtaUpdater`): commands `META_DATA` / `BRICK_DATA` / `DATA_VERIFY` /
+    `EXECUTION_NEW_CODE`.
+  Neither has a read / get / dump opcode. (This mask exposes `fd00` but not `fee8`.)
+- The `fff0` app protocol only uploads/controls images; there is no read-image or read-memory command.
+- No GATT characteristic exposes memory for reading (only the name `2a00` and the model `2901`).
+- `ae00` (the one service not referenced by the app) stays silent — it pushed nothing in a 12 s
+  passive listen and would need unknown commands written to `ae01` to do anything; blind-writing
+  those risks a destructive command, so it was not poked.
+
+BLE OTA is one-way by design, so the only realistic dump is **physical**: open the mask and attach
+SWD to the Panchip chip (`PAN108x`: `SWD_CLK`=P46, `SWD_DAT`=P47) and read flash. That only works if
+the chip's eFuse **debug-protection bit is not set**; if it is (common on production), readout is
+blocked and can't be cleared without erasing the flash (destroying the image, and possibly factory
+calibration). Needs hardware, risks the device, not guaranteed.
+
+## Firmware search (exhausted the software sources)
+
+- **Bundled in the app (1.2.7):** `TR1906R04` only. ✗ for this hardware.
+- **Vendor server (`api.e-toys.cn`):** alive, but the OTA-check endpoint `app/lastOtaUpdate` is
+  **dead code — never called by the app** — and returns `{"status":0,"data":null}` for every
+  app_id/hardware variant. No network firmware distribution. ✗
+- **Public web / GitHub:** no firmware dump exists anywhere; only BLE-protocol RE (Bishop Fox,
+  8none1/idealLED, GoneUp/mask-go). ✗
+
 ## To unblock safely (future)
 
-Get the **`TR2111R004-01`** firmware image from the vendor (Shenzhen Heaton / `e-toys.cn`). That
-provides both a modification base and a recovery image; then the `fd00` OTA can be driven from a
-bleak client, proving a **stock re-flash first** before any modified image.
+Only two realistic routes to a `TR2111R004-01` image:
+1. **Ask the vendor** (Shenzhen Heaton 深圳市希顿科技有限公司 / `e-toys.cn`) for the firmware. That
+   provides both a modification base and a recovery image; then the `fd00` OTA can be driven from a
+   bleak client, proving a **stock re-flash first** before any modified image.
+2. **Physical SWD dump** (see above) — only if the chip is unlocked.
