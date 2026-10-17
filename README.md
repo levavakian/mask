@@ -16,10 +16,11 @@ since Safari has no Web Bluetooth).
 3. **Line up:** adjust zoom/position/contrast; **Show on mask** sends one frame to check the fit.
 4. **Morph:** pick a style, number of frames (up to 33), strength and color drift.
 5. **Play on mask:** **Send frames to mask** uploads every frame, then playback starts.
-   Set the speed (seconds per frame) and mode (once / back and forth / loop) any time — no re-upload needed.
+   Set the speed (whole seconds per frame) and mode (once / back and forth / loop) any time — no re-upload needed.
 
-Uploading takes a few seconds per frame and the mask shows its own download animation meanwhile.
-Keep the page open during playback; the phone drives the frame changes.
+Uploading takes roughly 5–10 seconds per frame and the mask shows its own download animation meanwhile
+(that's firmware behaviour and can't be turned off). Keep the page open during playback: the phone
+hands the mask a new list of frames about every 9 seconds.
 
 ## Development
 
@@ -51,6 +52,7 @@ nix run nixpkgs#gh -- api -X POST repos/levavakian/mask/pages -f 'source[branch]
 - `docs/js/mask.js` — Web Bluetooth connection, upload and playback commands
 - `docs/js/face.js` — face detection and alignment onto the 46×58 LED grid
 - `docs/js/morph.js` — morph styles
+- `docs/js/player.js` — playback planning (PLAY lists)
 - `docs/js/app.js` — UI
 
 ## Mask protocol notes
@@ -66,6 +68,9 @@ Based on [mask-go](https://github.com/GoneUp/mask-go),
 - Upload: `DATS <size u16> <slot u16> 01` → `DATSOK`; then 100-byte packets
   `[len+1, index, ≤98 bytes]`, each acknowledged with `REOK`; then `DATCP <unix time u32>` → `DATCPOK`.
   The mask drops packets if you don't wait for each `REOK`.
-- 34 image slots (1–34). `PLAY <n> <slot…>` shows slots (cycling ~1 fps if several). Switching takes ~60 ms.
-- The mask plays a download animation during every upload. Sending any command mid-upload
-  (e.g. `PLAY` to hide the animation) corrupts the stored image, so frames are uploaded first and played after.
+- 34 image slots (1–34). `PLAY <n> <slot…>` (up to 10 slots) shows them, cycling on the mask's own
+  timer at ~1 slot per second; the `SPEED` command does not change that rate.
+- Every `PLAY` command causes a visible flicker / bright column, but cycling within one list is clean.
+  So playback sends lists of up to 10 slots (frames repeated for slower speeds) instead of one `PLAY` per frame.
+- The mask plays a download animation during every upload, even at brightness 0. Sending any command
+  mid-upload (e.g. `PLAY` to hide the animation) corrupts the stored image, so frames are uploaded first and played after.
