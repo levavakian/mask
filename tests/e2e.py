@@ -78,6 +78,10 @@ def main():
 
         sheet = page.evaluate(SHEET_JS)
         (OUT / "05-styles.png").write_bytes(base64.b64decode(sheet.split(",", 1)[1]))
+        # Shrinking the frame count while the preview animates used to crash the preview loop.
+        page.wait_for_function("+document.getElementById('scrub').value >= 6", timeout=20_000)
+        page.eval_on_selector("#frames", "(e) => { e.value = '3'; e.dispatchEvent(new Event('input')); }")
+        page.wait_for_timeout(800)
         n = page.evaluate("window.maskApp.state.frames.length")
         print("frames:", n)
         browser.close()

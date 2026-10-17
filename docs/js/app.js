@@ -290,6 +290,7 @@ function previewLoop(now) {
     idx = previewIdx;
     $('scrub').value = idx;
   }
+  idx = Math.max(0, Math.min(n - 1, idx | 0));
   if (idx !== previewLoop.drawn || state.frames !== previewLoop.frames) {
     previewLoop.drawn = idx;
     previewLoop.frames = state.frames;
