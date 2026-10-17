@@ -99,3 +99,7 @@ Based on [mask-go](https://github.com/GoneUp/mask-go),
   So playback sends lists of up to 10 slots (frames repeated for slower speeds) instead of one `PLAY` per frame.
 - The mask plays a download animation during every upload, even at brightness 0. Sending any command
   mid-upload (e.g. `PLAY` to hide the animation) corrupts the stored image, so frames are uploaded first and played after.
+- Hot-swapping new frames *without* that download animation would need custom firmware. That was
+  investigated and is currently blocked/unsafe on this hardware (`TR2111R004-01`): see
+  [docs/FIRMWARE.md](docs/FIRMWARE.md). `PLAY`-switching between already-loaded slots is itself
+  animation-free, so preloading slots and switching is the safe way to get instant changes.
