@@ -7,8 +7,11 @@
     -Mode video   Record -Seconds of H.264 video (.mp4).
     -Mode list    Print the cameras and the sizes/frame rates they support.
 
-  -Exposure auto|-13..-1 sets the exposure time as log2(seconds) (-8 = 1/256 s). A short manual
-  exposure helps keep bright LEDs from saturating; auto exposure is put back afterwards.
+  -Brightness shifts the picture darker or lighter (-64..64 on the ASUS webcam). With auto exposure,
+  -64 shows the mask's LEDs as separate dots with their colors instead of blown-out white.
+  -Exposure auto|-13..-1 sets the exposure time as log2(seconds) (-5 = 1/32 s). The ASUS webcam has
+  no gain in manual mode, so this comes out dark; it mainly keeps video at 30 fps in a dim room.
+  Both are camera settings that outlive this process, so they are put back afterwards.
 #>
 param(
   [ValidateSet('photo', 'video', 'list')]
@@ -17,6 +20,7 @@ param(
   [string]$Camera = '',
   [string]$Size = '',
   [string]$Exposure = 'auto',
+  [string]$Brightness = '',
   [double]$Seconds = 5,
   [int]$MaxWarmupMs = 8000
 )
@@ -104,6 +108,19 @@ function Set-Exposure($capture, [string]$value) {
   $v = [double]$value
   if ($v -lt $caps.Min -or $v -gt $caps.Max) { throw "Exposure must be between $($caps.Min) and $($caps.Max)." }
   if (-not ($control.TrySetAuto($false) -and $control.TrySetValue($v))) { throw 'The camera refused the exposure setting.' }
+}
+
+# Returns the old value so it can be put back.
+function Set-Brightness($capture, [string]$value) {
+  $control = $capture.VideoDeviceController.Brightness
+  $caps = $control.Capabilities
+  if (-not $caps.Supported) { throw 'This camera has no brightness control.' }
+  $v = [double]$value
+  if ($v -lt $caps.Min -or $v -gt $caps.Max) { throw "Brightness must be between $($caps.Min) and $($caps.Max)." }
+  $old = 0.0
+  if (-not $control.TryGetValue([ref]$old)) { $old = $caps.Default }
+  if (-not $control.TrySetValue($v)) { throw 'The camera refused the brightness setting.' }
+  $old
 }
 
 # Average of a sparse sample of the pixel bytes (alpha skipped); good enough to see exposure settle.
@@ -230,18 +247,21 @@ if (-not $Out) { $Out = Join-Path $env:TEMP ('webcam.' + $(if ($Mode -eq 'video'
 $stream = Start-Stream $device 'ExclusiveControl' $Size
 if (-not $stream) {
   # Windows may grant exclusive access to a camera another app is streaming from, then send no frames.
-  Write-Warning 'Another app seems to be using the camera; sharing it read-only, so -Size and -Exposure are ignored.'
+  Write-Warning 'Another app seems to be using the camera; sharing it read-only, so -Size, -Exposure and -Brightness are ignored.'
   $stream = Start-Stream $device 'SharedReadOnly' $Size
 }
 if (-not $stream) { throw 'No frames arrived from the camera.' }
 $capture = $stream.Capture
-# Only touch exposure once frames are flowing, so a busy camera's other app is never affected.
+# Only touch settings once frames are flowing, so a busy camera's other app is never affected.
 $manualExposure = $stream.Exclusive -and $Exposure -ne 'auto'
+$oldBrightness = $null
 try {
   if ($manualExposure) { Set-Exposure $capture $Exposure }
+  if ($stream.Exclusive -and $Brightness) { $oldBrightness = Set-Brightness $capture $Brightness }
   $format = $stream.Source.CurrentFormat
-  Write-Output ('camera: {0} {1}x{2}@{3} exposure={4}{5}' -f $device.Name, $format.VideoFormat.Width,
+  Write-Output ('camera: {0} {1}x{2}@{3} exposure={4}{5}{6}' -f $device.Name, $format.VideoFormat.Width,
     $format.VideoFormat.Height, (Get-Fps $format.FrameRate), $(if ($manualExposure) { $Exposure } else { 'auto' }),
+    $(if ($null -ne $oldBrightness) { " brightness=$Brightness" } else { '' }),
     $(if ($stream.Exclusive) { '' } else { ' (shared)' }))
 
   # Let exposure settle; for video the stream keeps running, so the recording starts settled.
@@ -264,7 +284,8 @@ try {
     Write-Output ('saved: {0} ({1:N1} s)' -f $Out, $Seconds)
   }
 } finally {
-  # Exposure is a camera setting that can outlive this process; give other apps auto exposure back.
+  # These settings outlive this process; give other apps their normal picture back.
   if ($manualExposure) { $null = $capture.VideoDeviceController.Exposure.TrySetAuto($true) }
+  if ($null -ne $oldBrightness) { $null = $capture.VideoDeviceController.Brightness.TrySetValue($oldBrightness) }
   Close-Stream $stream
 }

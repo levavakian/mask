@@ -44,19 +44,21 @@ what the mask displays can be checked without someone watching it. It runs `tool
 PowerShell, which uses the camera API built into Windows, so there is nothing to install on either side.
 
 ```sh
-nix run .#webcam -- list                                       # cameras and sizes
-nix run .#webcam -- photo                                      # -> tests/out/webcam/photo-<time>.png
-nix run .#webcam -- photo mask.png --exposure -8               # short exposure for the bright LEDs
-nix run .#webcam -- video clip.mp4 --seconds 12 --exposure -8  # e.g. to check playback for flicker
+nix run .#webcam -- list                                          # cameras and sizes
+nix run .#webcam -- photo                                         # -> tests/out/webcam/photo-<time>.png
+nix run .#webcam -- photo mask.png --brightness -64               # best setting found for the mask's LEDs
+nix run .#webcam -- video clip.mp4 --seconds 12 --brightness -64  # e.g. to check playback
 nix develop -c ffmpeg -i clip.mp4 -vf "fps=2,scale=480:-1,tile=6x4" -frames:v 1 sheet.png  # contact sheet
 ```
 
 - Captures default to `tests/out/webcam/` (git-ignored; they can include faces). The camera light is on while capturing.
 - Photos are taken, and videos started, once auto-exposure has settled (2–3 s).
-- `--exposure` is log2(seconds), -13 to -1. Manual exposures come out much darker than auto (in a dim room
-  even -5 is nearly black), which suits the LEDs, and keep video at 30 fps (auto drops to ~20 fps in dim light).
-  Auto exposure is put back afterwards.
-- If another app is using the camera, the tool shares it read-only: it still captures, but can't change size or exposure.
+- With plain auto exposure the mask's bright LEDs blow out to white. `--brightness -64` (range -64..64 on this
+  webcam) keeps auto exposure but darkens everything, so each LED shows as a separate dot in its own color.
+- `--exposure` sets a manual exposure (log2 seconds, -13 to -1). This webcam has no gain in manual mode, so even
+  -3 leaves the mask dim and grey; its use is keeping video at 30 fps (auto drops to ~12 fps in a dark room).
+- Brightness and exposure are camera settings that outlive the capture, so they are put back afterwards.
+- If another app is using the camera, the tool shares it read-only: it still captures, but can't change size, exposure or brightness.
 
 ### Deploying
 

@@ -53,7 +53,8 @@
                    webcam video [FILE.mp4] [--seconds N] [options]
                    webcam list
             Options:
-              --exposure auto|-13..-1  exposure as log2(seconds), e.g. -8 = 1/256 s; short ones keep LEDs from saturating
+              --brightness N           shift the picture darker/lighter; -64 shows the mask's LEDs as separate dots
+              --exposure auto|-13..-1  manual exposure as log2(seconds); dark on this camera (no gain), keeps 30 fps
               --size WxH               frame size (default: the largest, 1920x1080 here)
               --camera NAME            part of the camera's name (default: the first camera)
             FILE defaults to tests/out/webcam/<mode>-<time>.<ext> (git-ignored).
@@ -70,7 +71,7 @@
             opts=()
             while [ $# -gt 0 ]; do
               case "$1" in
-                --exposure | --size | --camera | --seconds)
+                --brightness | --exposure | --size | --camera | --seconds)
                   [ $# -ge 2 ] || { echo "webcam: $1 needs a value" >&2; exit 1; }
                   name="''${1#--}"
                   opts+=("-''${name^}" "$2")
