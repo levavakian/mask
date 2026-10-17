@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b10">
+  <title>Mask Morph</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎭</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Mask Morph</h1>
+    <div class="conn">
+      <span id="connStatus" class="pill off">Not connected</span>
+      <button id="connectBtn" class="small">Connect</button>
+    </div>
+  </header>
+  <p id="btWarning" class="warn" hidden>
+    This browser can't use Bluetooth. Use Chrome on Android (on iPhone, the Bluefy browser).
+  </p>
+
+  <main>
+    <section class="card" id="photoCard">
+      <h2><span class="num">1</span> Photo</h2>
+      <div class="camera">
+        <video id="video" playsinline muted hidden></video>
+        <canvas id="photo" hidden></canvas>
+        <div id="cameraPlaceholder" class="placeholder">Take a selfie, face the camera straight on.</div>
+        <div class="guide" id="guide" hidden></div>
+      </div>
+      <div class="row">
+        <button id="cameraBtn">Open camera</button>
+        <button id="shootBtn" class="primary" hidden>Take photo</button>
+        <button id="flipBtn" class="ghost" hidden title="Switch camera">↺ Flip</button>
+        <label class="button ghost">From gallery<input id="fileInput" type="file" accept="image/*" hidden></label>
+      </div>
+      <p id="photoStatus" class="status"></p>
+    </section>
+
+    <section class="card" id="alignCard">
+      <h2><span class="num">2</span> Line up</h2>
+      <div class="split">
+        <canvas id="alignPreview" class="leds" width="276" height="348"></canvas>
+        <div class="controls">
+          <label>Zoom <input id="zoom" type="range" min="0.6" max="1.8" step="0.01" value="1"></label>
+          <label>Left / right <input id="offsetX" type="range" min="-0.3" max="0.3" step="0.005" value="0"></label>
+          <label>Up / down <input id="offsetY" type="range" min="-0.3" max="0.3" step="0.005" value="0"></label>
+          <label class="check"><input id="isolate" type="checkbox" checked> Cut out face</label>
+          <label>Edge size <input id="expand" type="range" min="0.9" max="1.5" step="0.01" value="1.06"></label>
+          <label>Contrast <input id="contrast" type="range" min="0.5" max="2" step="0.01" value="1.15"></label>
+          <label>Color <input id="saturation" type="range" min="0" max="2.5" step="0.01" value="1.3"></label>
+          <label class="check"><input id="autoLevels" type="checkbox" checked> Auto levels</label>
+        </div>
+      </div>
+      <div class="row">
+        <button id="showBtn">Show on mask</button>
+      </div>
+      <p class="hint">"Show on mask" uploads this one frame (~5–10 s) so you can check the fit.</p>
+    </section>
+
+    <section class="card" id="morphCard">
+      <h2><span class="num">3</span> Morph</h2>
+      <div class="split">
+        <canvas id="morphPreview" class="leds" width="276" height="348"></canvas>
+        <div class="controls">
+          <label>Style <select id="style"></select></label>
+          <label><span>Frames: <output id="framesOut"></output></span><input id="frames" type="range" min="2" max="34" step="1" value="16"></label>
+          <label>Strength <input id="intensity" type="range" min="0.2" max="1.6" step="0.01" value="1"></label>
+          <label>Color drift <input id="colorDrift" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+          <div class="row tight">
+            <span>Variation <output id="seedOut"></output></span>
+            <button id="seedBtn" class="small ghost">🎲 Shuffle</button>
+          </div>
+          <label>Preview frame <input id="scrub" type="range" min="0" max="15" step="1" value="0"></label>
+        </div>
+      </div>
+      <div id="strip" class="strip"></div>
+    </section>
+
+    <section class="card" id="playCard">
+      <h2><span class="num">4</span> Play on mask</h2>
+      <div class="row">
+        <button id="uploadBtn" class="primary">Send frames to mask</button>
+        <button id="cancelBtn" class="ghost" hidden>Cancel</button>
+      </div>
+      <div class="progress" id="progressWrap" hidden><div id="progress"></div></div>
+      <p id="uploadStatus" class="status"></p>
+      <label><span>Speed: <output id="speedOut"></output> per frame</span><input id="speed" type="range" min="0" max="100" step="1" value="45"></label>
+      <label>Mode
+        <select id="mode">
+          <option value="once">Morph once, then hold</option>
+          <option value="pingpong">Morph and un-morph (back and forth)</option>
+          <option value="loop">Loop from the start</option>
+        </select>
+      </label>
+      <div class="row">
+        <button id="playBtn" class="primary" disabled>▶ Play</button>
+        <button id="pauseBtn" disabled>Pause</button>
+        <button id="restartBtn" disabled>Restart</button>
+      </div>
+      <label><span>Current frame: <output id="posOut"></output></span><input id="pos" type="range" min="0" max="15" step="1" value="0" disabled></label>
+      <details>
+        <summary>LED settings</summary>
+        <label>Brightness <input id="brightness" type="range" min="10" max="150" step="1" value="80"></label>
+        <label>Dark tone curve (gamma) <input id="gamma" type="range" min="1" max="3" step="0.05" value="2"></label>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>Uploading shows the mask's own download animation. Playback starts once all frames are on the mask.
+      Keep this page open while it plays.</p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

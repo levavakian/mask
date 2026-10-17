@@ -1,0 +1,4 @@
+The agent should use the gh cli (via nix) to do everything, it's allowed to push directly to master and in general the mask repo is completely under its control for whatever it needs to do for testing or deployment.
+It should always push after making feature changes and update the site hosted on github pages so the user can test it out on their phone.
+The agent is allowed to use the bluetooth on the device it's running on to test things out, it can assume or ask the user to turn on the mask neaarby the device where the agent is running.
+Any dependencies that are needed should be used via nix, the repo should have a nix flake from which everything can be run. A readme should exist saying how things that should be built. (The only required installable dependency of the entire repo should be nix, and everything else should flow through there).
