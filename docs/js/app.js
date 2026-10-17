@@ -2,7 +2,7 @@ import { Mask, bluetoothSupported } from './mask.js';
 import { WIDTH, HEIGHT, SLOT_COUNT } from './protocol.js';
 import { loadLandmarker, detectFace, alignFace } from './face.js';
 import { STYLES, prepareMorph, renderFrame, toLed, frameT } from './morph.js';
-import { SPEEDS, makeTimeline, nextSegment, wholeCycle } from './player.js';
+import { SPEEDS, makeTimeline, nextSegment, wholeCycle, planSlots } from './player.js';
 
 const $ = (id) => document.getElementById(id);
 const PREVIEW_SLOT = SLOT_COUNT; // "Show on mask" uses the last slot; morph frames use 1..33.
@@ -54,6 +54,7 @@ const state = {
   framesSig: '',
   uploadedSig: null, // signature of the frames currently on the mask
   slotHashes: new Map(), // slot -> hash of LED bytes on the mask (this session)
+  frameSlots: null, // frame index -> mask slot (identical frames share a slot); null = frame i uses slot i+1
   uploading: false,
   cancel: false,
   player: { playing: false, index: 0, timer: null, tickTimers: [] },
@@ -252,6 +253,7 @@ function regenerate() {
   const opts = morphOpts();
   state.frames = Array.from({ length: n }, (_, i) => renderFrame(state.morph, frameT(i, n), opts));
   state.framesSig = JSON.stringify([state.photoId, alignOpts(), opts, n, state.seed, num('gamma')]);
+  state.frameSlots = null; // rebuilt by the next upload; until then, frame i uses slot i+1
   $('scrub').max = n - 1;
   $('pos').max = n - 1;
   drawStrip();
@@ -306,6 +308,18 @@ function hashBytes(b) {
   for (let i = 0; i < b.length; i++) h = Math.imul(h ^ b[i], 16777619);
   return h >>> 0;
 }
+
+// A second, independent hash. Frames share a slot only when both hashes match, so a hash
+// collision can't make two different frames merge and show the wrong pixels.
+function hashBytes2(b) {
+  let h = 5381;
+  for (let i = 0; i < b.length; i++) h = (Math.imul(h, 33) ^ b[i]) >>> 0;
+  return h >>> 0;
+}
+const frameKey = (rgba) => `${hashBytes(rgba).toString(16)}:${hashBytes2(rgba).toString(16)}`;
+
+// Slot a frame plays from. Falls back to one-slot-per-frame before the first dedup upload.
+const slotOf = (f) => (state.frameSlots && state.frameSlots[f]) || (f + 1);
 
 function updateButtons() {
   const ready = mask.connected && state.frames.length > 0 && !state.uploading;
@@ -365,17 +379,20 @@ $('uploadBtn').onclick = async () => {
   regenerate();
   const gamma = num('gamma');
   const sig = state.framesSig;
-  const all = state.frames.map((f, i) => {
-    const rgba = toLed(f, gamma);
-    return { slot: i + 1, rgba, hash: hashBytes(rgba) };
-  });
-  const todo = all.filter((it) => state.slotHashes.get(it.slot) !== it.hash);
+  const led = state.frames.map((f) => toLed(f, gamma));
+  // Identical frames share a slot, so each distinct frame is uploaded only once.
+  const { slotOfFrame, uniqueFrames } = planSlots(led.map(frameKey));
+  state.frameSlots = slotOfFrame;
+  const items = uniqueFrames.map((frameIdx, k) => ({ slot: k + 1, rgba: led[frameIdx], hash: hashBytes(led[frameIdx]) }));
+  const todo = items.filter((it) => state.slotHashes.get(it.slot) !== it.hash);
   if (todo.length) {
     const ok = await uploadItems(todo, 'Sending');
     if (!ok) return;
   }
   state.uploadedSig = sig;
-  setStatus('uploadStatus', `All ${all.length} frames are on the mask.`);
+  const reused = state.frames.length - uniqueFrames.length;
+  setStatus('uploadStatus', `All ${state.frames.length} frames are on the mask`
+    + (reused ? ` (${uniqueFrames.length} slots; ${reused} identical frame${reused > 1 ? 's' : ''} reused).` : '.'));
   startPlayer(0);
 };
 
@@ -407,7 +424,7 @@ function sendList(frameIdx) {
   const tick = num('tick') * 1000;
   clearPlayerTimers();
   frameIdx.forEach((f, k) => state.player.tickTimers.push(setTimeout(() => showFrame(f), k * tick)));
-  return mask.play(frameIdx.map((f) => f + 1)).catch((e) => console.warn('play failed', e));
+  return mask.play(frameIdx.map(slotOf)).catch((e) => console.warn('play failed', e));
 }
 
 function startPlayer(from = state.player.index) {
@@ -426,7 +443,7 @@ function startPlayer(from = state.player.index) {
     // Short cycle: the mask loops it by itself, no further commands (and no glitches).
     const tick = num('tick') * 1000;
     clearPlayerTimers();
-    mask.play(cycle.map((f) => f + 1)).catch((e) => console.warn('play failed', e));
+    mask.play(cycle.map(slotOf)).catch((e) => console.warn('play failed', e));
     const loopUi = () => {
       cycle.forEach((f, k) => p.tickTimers.push(setTimeout(() => showFrame(f), k * tick)));
       p.timer = setTimeout(loopUi, cycle.length * tick);

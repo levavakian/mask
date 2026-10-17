@@ -1,8 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeTimeline, nextSegment, wholeCycle, MAX_PLAY } from '../docs/js/player.js';
+import { makeTimeline, nextSegment, wholeCycle, MAX_PLAY, planSlots } from '../docs/js/player.js';
 
 const take = (tl, k) => Array.from({ length: k }, () => tl.next());
+
+test('planSlots is identity when every frame differs', () => {
+  const { slotOfFrame, uniqueFrames } = planSlots(['a', 'b', 'c', 'd']);
+  assert.deepEqual(slotOfFrame, [1, 2, 3, 4]); // same as the old frame-i -> slot-(i+1)
+  assert.deepEqual(uniqueFrames, [0, 1, 2, 3]);
+});
+
+test('planSlots shares a slot for identical frames and uploads each once', () => {
+  // frames 0 and 2 are identical ('a'); 1 and 4 are identical ('b'); 3 is unique ('c')
+  const { slotOfFrame, uniqueFrames } = planSlots(['a', 'b', 'a', 'c', 'b']);
+  assert.deepEqual(slotOfFrame, [1, 2, 1, 3, 2]); // dup frames point back at the first copy's slot
+  assert.deepEqual(uniqueFrames, [0, 1, 3]); // only 3 slots uploaded instead of 5
+});
+
+test('planSlots collapses an all-identical sequence to one slot', () => {
+  const { slotOfFrame, uniqueFrames } = planSlots(['x', 'x', 'x']);
+  assert.deepEqual(slotOfFrame, [1, 1, 1]);
+  assert.deepEqual(uniqueFrames, [0]);
+});
 
 test('timeline repeats frames and follows each mode', () => {
   assert.deepEqual(take(makeTimeline(3, 2, 'once'), 8), [0, 0, 1, 1, 2, 2, null, null]);

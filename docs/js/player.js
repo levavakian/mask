@@ -7,6 +7,31 @@ export const MAX_PLAY = 10; // slots that fit in one PLAY command
 export const SPEEDS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 45, 60]; // seconds per frame
 
 /**
+ * Assign frames to mask slots so byte-identical frames share one slot, which cuts uploads
+ * (each slot is uploaded once). `keys[i]` identifies frame i's pixels: equal keys MUST mean
+ * identical frames, so the key has to be collision-free for correctness.
+ * Returns 1-based slots:
+ *   slotOfFrame[i] = the slot frame i plays from
+ *   uniqueFrames[k] = the frame index whose pixels are stored in slot k+1
+ * With all-distinct frames this is the identity mapping (slotOfFrame[i] === i + 1).
+ */
+export function planSlots(keys) {
+  const slotForKey = new Map();
+  const slotOfFrame = new Array(keys.length);
+  const uniqueFrames = [];
+  for (let i = 0; i < keys.length; i++) {
+    let slot = slotForKey.get(keys[i]);
+    if (slot === undefined) {
+      slot = uniqueFrames.length + 1;
+      slotForKey.set(keys[i], slot);
+      uniqueFrames.push(i);
+    }
+    slotOfFrame[i] = slot;
+  }
+  return { slotOfFrame, uniqueFrames };
+}
+
+/**
  * Endless (or, for mode "once", finite) sequence of frame indices, one per mask tick.
  * Each frame is repeated `reps` ticks. Modes: once, loop, pingpong.
  */
