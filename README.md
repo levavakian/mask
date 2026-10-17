@@ -31,10 +31,32 @@ The only thing you need installed is [Nix](https://nixos.org/download) (with fla
 | `nix run .#serve` | Serve the site from `docs/` at http://localhost:8000 (`PORT=…` to change) |
 | `nix run .#test` | Unit tests: protocol framing, AES, image encoding (Node) |
 | `nix run .#e2e` | Headless Chromium run of the app with `tests/fixtures/selfie.jpg`; screenshots go to `tests/out/` (needs internet for the face model) |
-| `nix develop` | Shell with node, python and `gh` |
+| `nix run .#webcam -- photo` | Photo (or video) from the laptop webcam, to check what the mask shows (WSL only, see below) |
+| `nix develop` | Shell with node, python, `gh` and ffmpeg |
 
 There is no build step: `docs/` is the site, as plain ES modules. Face landmarks come from
 MediaPipe Face Landmarker, loaded from jsDelivr / Google storage at runtime.
+
+### Watching the mask through the webcam
+
+On a Windows laptop running WSL, `nix run .#webcam` takes photos and short videos with the webcam, so
+what the mask displays can be checked without someone watching it. It runs `tools/webcam.ps1` in Windows
+PowerShell, which uses the camera API built into Windows, so there is nothing to install on either side.
+
+```sh
+nix run .#webcam -- list                                       # cameras and sizes
+nix run .#webcam -- photo                                      # -> tests/out/webcam/photo-<time>.png
+nix run .#webcam -- photo mask.png --exposure -8               # short exposure for the bright LEDs
+nix run .#webcam -- video clip.mp4 --seconds 12 --exposure -8  # e.g. to check playback for flicker
+nix develop -c ffmpeg -i clip.mp4 -vf "fps=2,scale=480:-1,tile=6x4" -frames:v 1 sheet.png  # contact sheet
+```
+
+- Captures default to `tests/out/webcam/` (git-ignored; they can include faces). The camera light is on while capturing.
+- Photos are taken, and videos started, once auto-exposure has settled (2–3 s).
+- `--exposure` is log2(seconds), -13 to -1. Manual exposures come out much darker than auto (in a dim room
+  even -5 is nearly black), which suits the LEDs, and keep video at 30 fps (auto drops to ~20 fps in dim light).
+  Auto exposure is put back afterwards.
+- If another app is using the camera, the tool shares it read-only: it still captures, but can't change size or exposure.
 
 ### Deploying
 
@@ -54,6 +76,7 @@ nix run nixpkgs#gh -- api -X POST repos/levavakian/mask/pages -f 'source[branch]
 - `docs/js/morph.js` — morph styles
 - `docs/js/player.js` — playback planning (PLAY lists)
 - `docs/js/app.js` — UI
+- `tools/webcam.ps1` — webcam photos/videos from WSL (`nix run .#webcam`)
 
 ## Mask protocol notes
 
