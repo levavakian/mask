@@ -86,7 +86,7 @@
       </div>
       <div class="progress" id="progressWrap" hidden><div id="progress"></div></div>
       <p id="uploadStatus" class="status"></p>
-      <label><span>Speed: <output id="speedOut"></output> per frame</span><input id="speed" type="range" min="0" max="100" step="1" value="45"></label>
+      <label><span>Speed: <output id="speedOut"></output> per frame</span><input id="frameSecs" type="range" min="0" max="13" step="1" value="1"></label>
       <label>Mode
         <select id="mode">
           <option value="once">Morph once, then hold</option>
@@ -104,6 +104,9 @@
         <summary>LED settings</summary>
         <label>Brightness <input id="brightness" type="range" min="10" max="150" step="1" value="80"></label>
         <label>Dark tone curve (gamma) <input id="gamma" type="range" min="1" max="3" step="0.05" value="2"></label>
+        <label><span>Mask frame time: <output id="tickOut"></output></span><input id="tick" type="range" min="0.7" max="1.3" step="0.01" value="1"></label>
+        <p class="hint">The mask advances frames on its own timer (about 1 per second). If playback jumps back
+          briefly every ~10 s, lower this; if frames near those points look stretched, raise it.</p>
       </details>
     </section>
   </main>

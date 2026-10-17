@@ -2,6 +2,7 @@ import { Mask, bluetoothSupported } from './mask.js';
 import { WIDTH, HEIGHT, SLOT_COUNT } from './protocol.js';
 import { loadLandmarker, detectFace, alignFace } from './face.js';
 import { STYLES, prepareMorph, renderFrame, toLed, frameT } from './morph.js';
+import { SPEEDS, makeTimeline, nextSegment, wholeCycle } from './player.js';
 
 const $ = (id) => document.getElementById(id);
 const PREVIEW_SLOT = SLOT_COUNT; // "Show on mask" uses the last slot; morph frames use 1..33.
@@ -9,7 +10,7 @@ const MAX_FRAMES = SLOT_COUNT - 1;
 
 // ---------- settings ----------
 const SETTINGS = ['zoom', 'offsetX', 'offsetY', 'isolate', 'expand', 'contrast', 'saturation', 'autoLevels',
-  'style', 'frames', 'intensity', 'colorDrift', 'speed', 'mode', 'brightness', 'gamma'];
+  'style', 'frames', 'intensity', 'colorDrift', 'frameSecs', 'mode', 'brightness', 'gamma', 'tick'];
 const styleSel = $('style');
 for (const [k, v] of Object.entries(STYLES)) styleSel.add(new Option(v, k));
 $('frames').max = MAX_FRAMES;
@@ -39,7 +40,7 @@ const alignOpts = () => ({
 });
 const morphOpts = () => ({ style: $('style').value, intensity: num('intensity'), colorDrift: num('colorDrift') });
 const frameCount = () => Math.min(MAX_FRAMES, parseInt($('frames').value, 10));
-const speedSeconds = () => 0.1 * Math.pow(300, num('speed') / 100);
+const speedSeconds = () => SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, parseInt($('frameSecs').value, 10)))];
 
 // ---------- state ----------
 const state = {
@@ -55,7 +56,7 @@ const state = {
   slotHashes: new Map(), // slot -> hash of LED bytes on the mask (this session)
   uploading: false,
   cancel: false,
-  player: { playing: false, index: 0, dir: 1, timer: null },
+  player: { playing: false, index: 0, timer: null, tickTimers: [] },
   scrubbedAt: 0,
 };
 
@@ -76,7 +77,7 @@ mask.addEventListener('status', (e) => {
   setConnUI();
   if (e.detail.status === 'connected') {
     mask.setBrightness(num('brightness')).catch(() => {});
-    if (state.player.playing) showCurrentOnMask();
+    restartIfPlaying();
   }
 });
 
@@ -375,9 +376,7 @@ $('uploadBtn').onclick = async () => {
   }
   state.uploadedSig = sig;
   setStatus('uploadStatus', `All ${all.length} frames are on the mask.`);
-  state.player.index = 0;
-  state.player.dir = 1;
-  startPlayer();
+  startPlayer(0);
 };
 
 $('showBtn').onclick = async () => {
@@ -389,57 +388,99 @@ $('showBtn').onclick = async () => {
   }
 };
 
-function showCurrentOnMask() {
+function showFrame(i) {
   const p = state.player;
-  $('pos').value = p.index;
-  $('posOut').textContent = `${p.index + 1} / ${state.frames.length}`;
-  return mask.play(p.index + 1).catch((e) => console.warn('play failed', e));
+  p.index = i;
+  $('pos').value = i;
+  $('posOut').textContent = `${i + 1} / ${state.frames.length}`;
 }
 
-function startPlayer() {
+function clearPlayerTimers() {
+  const p = state.player;
+  clearTimeout(p.timer);
+  p.tickTimers.forEach(clearTimeout);
+  p.tickTimers = [];
+}
+
+// Hand the mask a list of slots and mirror its ~1/s progress in the UI.
+function sendList(frameIdx) {
+  const tick = num('tick') * 1000;
+  clearPlayerTimers();
+  frameIdx.forEach((f, k) => state.player.tickTimers.push(setTimeout(() => showFrame(f), k * tick)));
+  return mask.play(frameIdx.map((f) => f + 1)).catch((e) => console.warn('play failed', e));
+}
+
+function startPlayer(from = state.player.index) {
   if (state.uploadedSig !== state.framesSig) return;
   const p = state.player;
+  const n = state.frames.length;
+  const mode = $('mode').value;
+  const reps = speedSeconds();
+  if (mode === 'once' && from >= n - 1) from = 0;
   p.playing = true;
   requestWakeLock();
-  clearTimeout(p.timer);
-  const n = state.frames.length;
-  const step = async () => {
-    if (!p.playing) return;
-    await showCurrentOnMask();
-    const mode = $('mode').value;
-    let next = p.index + p.dir;
-    if (next >= n || next < 0) {
-      if (mode === 'once') { p.playing = false; updateButtons(); releaseWakeLockIfIdle(); return; }
-      if (mode === 'loop') next = 0;
-      else { p.dir *= -1; next = p.index + p.dir; }
-    }
-    p.index = Math.max(0, Math.min(n - 1, next));
-    p.timer = setTimeout(step, speedSeconds() * 1000);
-  };
-  if (p.index >= n - 1 && $('mode').value === 'once') p.index = 0;
-  step();
   updateButtons();
+
+  const cycle = from === 0 ? wholeCycle(n, reps, mode) : null;
+  if (cycle) {
+    // Short cycle: the mask loops it by itself, no further commands (and no glitches).
+    const tick = num('tick') * 1000;
+    clearPlayerTimers();
+    mask.play(cycle.map((f) => f + 1)).catch((e) => console.warn('play failed', e));
+    const loopUi = () => {
+      cycle.forEach((f, k) => p.tickTimers.push(setTimeout(() => showFrame(f), k * tick)));
+      p.timer = setTimeout(loopUi, cycle.length * tick);
+    };
+    loopUi();
+    return;
+  }
+
+  const timeline = makeTimeline(n, reps, mode, from);
+  const step = () => {
+    if (!p.playing) return;
+    const seg = nextSegment(timeline);
+    if (!seg) {
+      // Finished "once": hold the last frame.
+      sendList([n - 1]);
+      p.playing = false;
+      updateButtons();
+      releaseWakeLockIfIdle();
+      return;
+    }
+    sendList(seg.entries);
+    // Send the next list while the mask shows the duplicated last entry.
+    p.timer = setTimeout(step, (seg.ticks + 0.4) * num('tick') * 1000);
+  };
+  step();
 }
 
 function stopPlayer() {
   state.player.playing = false;
-  clearTimeout(state.player.timer);
+  clearPlayerTimers();
   releaseWakeLockIfIdle();
   updateButtons();
 }
 
-$('playBtn').onclick = startPlayer;
-$('pauseBtn').onclick = stopPlayer;
+function pausePlayer() {
+  if (!state.player.playing) return;
+  stopPlayer();
+  sendList([state.player.index]);
+}
+
+function restartIfPlaying() {
+  if (state.player.playing) startPlayer(state.player.index);
+}
+
+$('playBtn').onclick = () => startPlayer();
+$('pauseBtn').onclick = pausePlayer;
 $('restartBtn').onclick = () => {
   stopPlayer();
   state.player.index = 0;
-  state.player.dir = 1;
-  startPlayer();
+  startPlayer(0);
 };
 $('pos').oninput = () => {
   stopPlayer();
-  state.player.index = parseInt($('pos').value, 10);
-  showCurrentOnMask();
+  sendList([parseInt($('pos').value, 10)]);
 };
 
 // ---------- wake lock ----------
@@ -466,7 +507,8 @@ function updateOutputs() {
   $('framesOut').textContent = frameCount();
   $('seedOut').textContent = `#${state.seed}`;
   const s = speedSeconds();
-  $('speedOut').textContent = s < 1 ? `${s.toFixed(2)} s` : `${s.toFixed(1)} s`;
+  $('speedOut').textContent = `${s} s`;
+  $('tickOut').textContent = `${num('tick').toFixed(2)} s`;
   $('posOut').textContent = `${state.player.index + 1} / ${state.frames.length || frameCount()}`;
 }
 
@@ -476,7 +518,10 @@ for (const id of ['zoom', 'offsetX', 'offsetY', 'isolate', 'expand', 'contrast',
 for (const id of ['style', 'frames', 'intensity', 'colorDrift', 'gamma']) {
   $(id).addEventListener('input', () => { scheduleRegen(); saveSettings(); updateOutputs(); });
 }
-for (const id of ['speed', 'mode']) $(id).addEventListener('input', () => { saveSettings(); updateOutputs(); });
+for (const id of ['frameSecs', 'mode', 'tick']) {
+  $(id).addEventListener('change', restartIfPlaying);
+  $(id).addEventListener('input', () => { saveSettings(); updateOutputs(); });
+}
 $('scrub').addEventListener('input', () => { state.scrubbedAt = performance.now(); });
 $('seedBtn').onclick = () => {
   state.seed = Math.floor(Math.random() * 1000);
